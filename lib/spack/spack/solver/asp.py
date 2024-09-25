@@ -28,7 +28,8 @@ from llnl.util.lang import elide_list
 import spack
 import spack.binary_distribution
 import spack.bootstrap.core
-import spack.compilers
+import spack.compilers.config
+import spack.compilers.flags
 import spack.concretize
 import spack.config
 import spack.deptypes as dt
@@ -48,6 +49,7 @@ import spack.variant as vt
 import spack.version as vn
 import spack.version.git_ref_lookup
 from spack import traverse
+from spack.compilers.libraries import CompilerPropertyDetector
 from spack.config import get_mark_from_yaml_data
 from spack.error import SpecSyntaxError
 
@@ -64,7 +66,6 @@ from .core import (
     parse_term,
 )
 from .counter import FullDuplicatesCounter, MinimalDuplicatesCounter, NoDuplicatesCounter
-from .libc import CompilerPropertyDetector
 from .version_order import concretization_version_order
 
 GitOrStandardVersion = Union[spack.version.GitVersion, spack.version.StandardVersion]
@@ -298,7 +299,7 @@ def all_libcs() -> Set[spack.spec.Spec]:
 
     libcs = {
         CompilerPropertyDetector(c).default_libc()
-        for c in spack.compilers.all_compilers_from(spack.config.CONFIG)
+        for c in spack.compilers.config.all_compilers_from(spack.config.CONFIG)
     }
     libcs.discard(None)
 
@@ -322,7 +323,7 @@ def using_libc_compatibility() -> bool:
     return spack.platforms.host().name == "linux"
 
 
-def c_compiler_runs(compiler: spack.compiler.Compiler) -> bool:
+def c_compiler_runs(compiler) -> bool:
     return CompilerPropertyDetector(compiler).compiler_verbose_output() is not None
 
 
@@ -604,7 +605,7 @@ def _external_config_with_implicit_externals(configuration):
     if not using_libc_compatibility():
         return packages_yaml
 
-    for compiler in spack.compilers.all_compilers_from(configuration):
+    for compiler in spack.compilers.config.all_compilers_from(configuration):
         libc = CompilerPropertyDetector(compiler).default_libc()
         if libc:
             entry = {"spec": f"{libc}", "prefix": libc.external_path}
@@ -757,27 +758,6 @@ class RequirementRule(NamedTuple):
     condition: "spack.spec.Spec"
     kind: RequirementKind
     message: Optional[str]
-
-
-class KnownCompiler(NamedTuple):
-    """Data class to collect information on compilers"""
-
-    spec: "spack.spec.Spec"
-    os: str
-    target: str
-    available: bool
-    compiler_obj: Optional["spack.compiler.Compiler"]
-
-    def _key(self):
-        return self.spec, self.os, self.target
-
-    def __eq__(self, other: object):
-        if not isinstance(other, KnownCompiler):
-            return NotImplemented
-        return self._key() == other._key()
-
-    def __hash__(self):
-        return hash(self._key())
 
 
 class PyclingoDriver:
@@ -2822,8 +2802,6 @@ class _Head:
     node_os = fn.attr("node_os_set")
     node_target = fn.attr("node_target_set")
     variant_value = fn.attr("variant_set")
-    node_compiler = fn.attr("node_compiler_set")
-    node_compiler_version = fn.attr("node_compiler_version_set")
     node_flag = fn.attr("node_flag_set")
     propagate = fn.attr("propagate")
 
@@ -2838,8 +2816,6 @@ class _Body:
     node_os = fn.attr("node_os")
     node_target = fn.attr("node_target")
     variant_value = fn.attr("variant_value")
-    node_compiler = fn.attr("node_compiler")
-    node_compiler_version = fn.attr("node_compiler_version")
     node_flag = fn.attr("node_flag")
     propagate = fn.attr("propagate")
 
@@ -3088,7 +3064,7 @@ class RequirementParser:
 
 def possible_compilers(*, configuration) -> List["spack.spec.Spec"]:
     result = set()
-    for c in spack.compilers.all_compilers_from(configuration):
+    for c in spack.compilers.config.all_compilers_from(configuration):
         # FIXME (compiler as nodes): Discard early specs that are not marked for this target?
 
         if using_libc_compatibility() and not c_compiler_runs(c):
@@ -3367,7 +3343,6 @@ class SpecBuilder:
                 r"^compatible_libc$",
                 r"^dependency_holds$",
                 r"^external_conditions_hold$",
-                r"^node_compiler$",
                 r"^package_hash$",
                 r"^root$",
                 r"^track_dependencies$",
@@ -3446,10 +3421,6 @@ class SpecBuilder:
 
     def version(self, node, version):
         self._specs[node].versions = vn.VersionList([vn.Version(version)])
-
-    def node_compiler_version(self, node, compiler, version):
-        self._specs[node].compiler = spack.spec.CompilerSpec(compiler)
-        self._specs[node].compiler.versions = vn.VersionList([vn.Version(version)])
 
     def node_flag(self, node, node_flag):
         self._specs[node].compiler_flags.add_flag(
@@ -3570,7 +3541,7 @@ class SpecBuilder:
 
                 for grp in prioritized_groups:
                     grp_flags = tuple(
-                        x for (x, y) in spack.compiler.tokenize_flags(grp.flag_group)
+                        x for (x, y) in spack.compilers.flags.tokenize_flags(grp.flag_group)
                     )
                     if grp_flags == from_compiler:
                         continue
@@ -3624,9 +3595,8 @@ class SpecBuilder:
             return (-1, 0)
 
     def build_specs(self, function_tuples):
-        # Functions don't seem to be in particular order in output.  Sort
-        # them here so that directives that build objects (like node and
-        # node_compiler) are called in the right order.
+        # Functions don't seem to be in particular order in output. Sort them here so that
+        # directives that build objects, like node, are called in the right order.
         self.function_tuples = sorted(set(function_tuples), key=self.sort_fn)
 
         self._specs = {}

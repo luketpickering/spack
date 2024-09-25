@@ -10,8 +10,8 @@ import pytest
 
 import llnl.util.filesystem as fs
 
-import spack.compiler
-import spack.compilers
+import spack.compilers.config
+import spack.compilers.error
 import spack.config
 import spack.spec
 import spack.util.module_cmd
@@ -38,7 +38,7 @@ from spack.util.executable import Executable
 #     mutable_config.update_config("compilers", compiler_config)
 #
 #     arch_spec = spack.spec.ArchSpec(("test", "test", "test"))
-#     cmp = spack.compilers.compiler_for_spec("clang@=0.0.0", arch_spec)
+#     cmp = spack.compilers.config.compiler_for_spec("clang@=0.0.0", arch_spec)
 #     assert cmp.f77 == "f77"
 
 
@@ -51,7 +51,7 @@ def test_compiler_flags_from_config_are_grouped():
         "modules": None,
     }
 
-    compiler = spack.compilers.compiler_from_dict(compiler_entry)
+    compiler = spack.compilers.config.compiler_from_dict(compiler_entry)
     assert any(x == "-foo-flag foo-val" for x in compiler.flags["cflags"])
 
 
@@ -212,7 +212,7 @@ def flag_value(flag, spec):
     else:
         compiler_entry = copy(default_compiler_entry)
         compiler_entry["spec"] = spec
-        compiler = spack.compilers.compiler_from_dict(compiler_entry)
+        compiler = spack.compilers.config.compiler_from_dict(compiler_entry)
 
     return getattr(compiler, flag)
 
@@ -223,7 +223,7 @@ def unsupported_flag_test(flag, spec=None):
     caught_exception = None
     try:
         flag_value(flag, spec)
-    except spack.compiler.UnsupportedCompilerFlag:
+    except spack.compilers.error.UnsupportedCompilerFlag:
         caught_exception = True
 
     assert caught_exception and "Expected exception not thrown."
@@ -259,9 +259,11 @@ def supported_flag_test(flag, flag_value_ref, spec=None):
 #     ]
 #     arch_spec = spack.spec.ArchSpec(("linux", "ubuntu18.04", "haswell"))
 #     with spack.config.override("compilers", compilers):
-#         cfg = spack.compilers.get_compiler_config(config)
+#         cfg = spack.compilers.config.get_compiler_config(config)
 #         with pytest.raises(ValueError):
-#             spack.compilers.get_compilers(cfg, spack.spec.CompilerSpec("gcc@9.0.1"), arch_spec)
+#             spack.compilers.config.get_compilers(
+#                 cfg, spack.spec.CompilerSpec("gcc@9.0.1"), arch_spec
+#             )
 
 # FIXME (compiler as nodes): revisit this test
 # @pytest.mark.regression("42679")
@@ -298,13 +300,13 @@ def supported_flag_test(flag, flag_value_ref, spec=None):
 #
 #     compilers = [{"compiler": without_suffix}, {"compiler": with_suffix}]
 #
-#     assert spack.compilers.get_compilers(
+#     assert spack.compilers.config.get_compilers(
 #         compilers, cspec=spack.spec.CompilerSpec("gcc@=13.2.0-suffix")
-#     ) == [spack.compilers._compiler_from_config_entry(with_suffix)]
+#     ) == [spack.compilers.config._compiler_from_config_entry(with_suffix)]
 #
-#     assert spack.compilers.get_compilers(
+#     assert spack.compilers.config.get_compilers(
 #         compilers, cspec=spack.spec.CompilerSpec("gcc@=13.2.0")
-#     ) == [spack.compilers._compiler_from_config_entry(without_suffix)]
+#     ) == [spack.compilers.config._compiler_from_config_entry(without_suffix)]
 
 
 @pytest.mark.enable_compiler_verification
@@ -312,7 +314,7 @@ def test_compiler_executable_verification_raises(tmpdir):
     compiler = MockCompiler()
     compiler.cc = "/this/path/does/not/exist"
 
-    with pytest.raises(spack.compiler.CompilerAccessError):
+    with pytest.raises(spack.compilers.error.CompilerAccessError):
         compiler.verify_executables()
 
 
@@ -361,7 +363,7 @@ def test_detection_requires_c_compiler(compilers_extra_attributes, expected_leng
             ]
         }
     }
-    result = spack.compilers.CompilerFactory.from_packages_yaml(packages_yaml)
+    result = spack.compilers.config.CompilerFactory.from_packages_yaml(packages_yaml)
     assert len(result) == expected_length
 
 
