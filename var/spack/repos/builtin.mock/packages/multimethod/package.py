@@ -26,6 +26,7 @@ class Multimethod(MultimethodBase):
     variant("mpi", default=False, description="")
 
     depends_on("mpi", when="+mpi")
+    depends_on("c", type="build")
 
     #
     # These functions are only valid for versions 1, 3, and 4.
